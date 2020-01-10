@@ -24,13 +24,13 @@ import { RunOnceScheduler, timeout } from 'vs/base/common/async';
 import { ITextBufferFactory } from 'vs/editor/common/model';
 import { hash } from 'vs/base/common/hash';
 import { INotificationService } from 'vs/platform/notification/common/notification';
-import { toDisposable, MutableDisposable } from 'vs/base/common/lifecycle';
+import { toDisposable } from 'vs/base/common/lifecycle';
 import { ILogService } from 'vs/platform/log/common/log';
 import { isEqual, isEqualOrParent, extname, basename, joinPath } from 'vs/base/common/resources';
 import { onUnexpectedError } from 'vs/base/common/errors';
 import { Schemas } from 'vs/base/common/network';
 import { IWorkingCopyService } from 'vs/workbench/services/workingCopy/common/workingCopyService';
-import { IFilesConfigurationService, IAutoSaveConfiguration } from 'vs/workbench/services/filesConfiguration/common/filesConfigurationService';
+import { IFilesConfigurationService } from 'vs/workbench/services/filesConfiguration/common/filesConfigurationService';
 
 export interface IBackupMetaData {
 	mtime: number;
@@ -92,10 +92,6 @@ export class TextFileEditorModel extends BaseTextEditorModel implements ITextFil
 
 	private lastResolvedFileStat: IFileStatWithMetadata | undefined;
 
-	private autoSaveAfterMillies: number | undefined;
-	private autoSaveAfterMilliesEnabled: boolean | undefined;
-	private readonly autoSaveDisposable = this._register(new MutableDisposable());
-
 	private readonly saveSequentializer = new SaveSequentializer();
 	private lastSaveAttemptTime = 0;
 
@@ -128,8 +124,6 @@ export class TextFileEditorModel extends BaseTextEditorModel implements ITextFil
 	) {
 		super(modelService, modeService);
 
-		this.updateAutoSaveConfiguration(filesConfigurationService.getAutoSaveConfiguration());
-
 		// Make known to working copy service
 		this._register(this.workingCopyService.registerWorkingCopy(this));
 
@@ -138,7 +132,6 @@ export class TextFileEditorModel extends BaseTextEditorModel implements ITextFil
 
 	private registerListeners(): void {
 		this._register(this.fileService.onFileChanges(e => this.onFileChanges(e)));
-		this._register(this.filesConfigurationService.onAutoSaveConfigurationChange(config => this.updateAutoSaveConfiguration(config)));
 		this._register(this.filesConfigurationService.onFilesAssociationChange(e => this.onFilesAssociationChange()));
 		this._register(this.onDidStateChange(e => this.onStateChange(e)));
 	}
@@ -204,13 +197,6 @@ export class TextFileEditorModel extends BaseTextEditorModel implements ITextFil
 			this.inOrphanMode = orphaned;
 			this.orphanedChangeEventScheduler.schedule();
 		}
-	}
-
-	private updateAutoSaveConfiguration(config: IAutoSaveConfiguration): void {
-		const autoSaveAfterMilliesEnabled = (typeof config.autoSaveDelay === 'number') && config.autoSaveDelay > 0;
-
-		this.autoSaveAfterMilliesEnabled = autoSaveAfterMilliesEnabled;
-		this.autoSaveAfterMillies = autoSaveAfterMilliesEnabled ? config.autoSaveDelay : undefined;
 	}
 
 	private onFilesAssociationChange(): void {
@@ -953,8 +939,6 @@ export class TextFileEditorModel extends BaseTextEditorModel implements ITextFil
 				return this.inOrphanMode;
 			case ModelState.PENDING_SAVE:
 				return this.saveSequentializer.hasPendingSave();
-			case ModelState.PENDING_AUTO_SAVE:
-				return !!this.autoSaveDisposable.value;
 			case ModelState.SAVED:
 				return !this.dirty;
 		}

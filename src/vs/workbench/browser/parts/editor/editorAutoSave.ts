@@ -5,7 +5,7 @@
 
 import { IWorkbenchContribution } from 'vs/workbench/common/contributions';
 import { Disposable, DisposableStore } from 'vs/base/common/lifecycle';
-import { IFilesConfigurationService, AutoSaveMode } from 'vs/workbench/services/filesConfiguration/common/filesConfigurationService';
+import { IFilesConfigurationService, AutoSaveMode, IAutoSaveConfiguration } from 'vs/workbench/services/filesConfiguration/common/filesConfigurationService';
 import { IHostService } from 'vs/workbench/services/host/browser/host';
 import { SaveReason, IEditorIdentifier, IEditorInput, GroupIdentifier } from 'vs/workbench/common/editor';
 import { IEditorService } from 'vs/workbench/services/editor/common/editorService';
@@ -14,6 +14,11 @@ import { withNullAsUndefined } from 'vs/base/common/types';
 
 export class EditorAutoSave extends Disposable implements IWorkbenchContribution {
 
+	// Auto save: after delay
+	private autoSaveAfterMillies: number | undefined;
+	private autoSaveAfterMilliesEnabled: boolean | undefined;
+
+	// Auto save: focus change & window change
 	private lastActiveEditor: IEditorInput | undefined = undefined;
 	private lastActiveGroupId: GroupIdentifier | undefined = undefined;
 	private lastActiveEditorControlDisposable = this._register(new DisposableStore());
@@ -26,13 +31,16 @@ export class EditorAutoSave extends Disposable implements IWorkbenchContribution
 	) {
 		super();
 
+		// Figure out initial auto save config
+		this.onAutoSaveConfigurationChange(filesConfigurationService.getAutoSaveConfiguration(), false);
+
 		this.registerListeners();
 	}
 
 	private registerListeners(): void {
 		this._register(this.hostService.onDidChangeFocus(focused => this.onWindowFocusChange(focused)));
 		this._register(this.editorService.onDidActiveEditorChange(() => this.onDidActiveEditorChange()));
-		this._register(this.filesConfigurationService.onAutoSaveConfigurationChange(() => this.onAutoSaveConfigurationChange()));
+		this._register(this.filesConfigurationService.onAutoSaveConfigurationChange(config => this.onAutoSaveConfigurationChange(config, true)));
 	}
 
 	private onWindowFocusChange(focused: boolean): void {
@@ -85,24 +93,31 @@ export class EditorAutoSave extends Disposable implements IWorkbenchContribution
 		}
 	}
 
-	private onAutoSaveConfigurationChange(): void {
-		let reason: SaveReason | undefined = undefined;
-		switch (this.filesConfigurationService.getAutoSaveMode()) {
-			case AutoSaveMode.ON_FOCUS_CHANGE:
-				reason = SaveReason.FOCUS_CHANGE;
-				break;
-			case AutoSaveMode.ON_WINDOW_CHANGE:
-				reason = SaveReason.WINDOW_CHANGE;
-				break;
-			case AutoSaveMode.AFTER_SHORT_DELAY:
-			case AutoSaveMode.AFTER_LONG_DELAY:
-				reason = SaveReason.AUTO;
-				break;
-		}
+	private onAutoSaveConfigurationChange(config: IAutoSaveConfiguration, fromEvent: boolean): void {
+
+		// Update auto save after delay config
+		this.autoSaveAfterMilliesEnabled = (typeof config.autoSaveDelay === 'number') && config.autoSaveDelay > 0;
+		this.autoSaveAfterMillies = this.autoSaveAfterMilliesEnabled ? config.autoSaveDelay : undefined;
 
 		// Trigger a save-all when auto save is enabled
-		if (reason) {
-			this.editorService.saveAll({ reason });
+		if (fromEvent) {
+			let reason: SaveReason | undefined = undefined;
+			switch (this.filesConfigurationService.getAutoSaveMode()) {
+				case AutoSaveMode.ON_FOCUS_CHANGE:
+					reason = SaveReason.FOCUS_CHANGE;
+					break;
+				case AutoSaveMode.ON_WINDOW_CHANGE:
+					reason = SaveReason.WINDOW_CHANGE;
+					break;
+				case AutoSaveMode.AFTER_SHORT_DELAY:
+				case AutoSaveMode.AFTER_LONG_DELAY:
+					reason = SaveReason.AUTO;
+					break;
+			}
+
+			if (reason) {
+				this.editorService.saveAll({ reason });
+			}
 		}
 	}
 }
